@@ -1,0 +1,29 @@
+# Define variables
+$tenantId = "your-tenant-id"
+$subscriptionId = "your-subscription-id"
+
+# Set Azure subscription
+az account set --subscription $subscriptionId
+
+# Get correct app secrets (identify the active one)
+$existingSecrets = az ad app credential list --id $appId | ConvertFrom-Json
+
+if (-not $existingSecrets) {
+    Write-Host "No existing secrets found for the app registration." -ForegroundColor Red
+    exit
+}
+
+# Extract currently active secrets
+$activeSecrets = $existingSecrets | Where-Object { $_.endDate -gt (Get-Date) }
+
+if (-not $activeSecrets) {
+    Write-Host "No active secrets found. Consider generating a new one." -ForegroundColor Yellow
+    exit
+}
+
+Write-Host "Identified active secrets, proceeding with rotation..."
+
+# Generate a new client secret
+$newSecret = az ad app credential reset --id $appId --append --query "{keyId:id, value:password}" | ConvertFrom-Json
+
+Write-Host "New secret generated successfully. Store this securely!"

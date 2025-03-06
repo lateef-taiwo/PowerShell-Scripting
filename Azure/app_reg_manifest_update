@@ -1,0 +1,31 @@
+# Check if App Object ID is provided
+if (-not $appObjectId) {
+    Write-Host "App Registration not found. Check your App ID."
+    exit
+}
+
+# Fetch existing app roles
+$existingAppRoles = az rest --method GET --headers @{
+    Authorization = "Bearer $token"
+} --url "https://graph.microsoft.com/v1.0/applications/$appObjectId" | ConvertFrom-Json
+
+# Define new app role
+$newAppRole = @{
+    displayName = "Admin Access"
+    description = "Allows admin level permissions"
+    id = (New-Guid).Guid
+    isEnabled = $true
+    value = "Admin"
+    allowedMemberTypes = @("Application")
+}
+
+# Update app roles
+$updatedAppRoles = $existingAppRoles.appRoles + $newAppRole
+$body = @{ appRoles = $updatedAppRoles } | ConvertTo-Json -Depth 10
+
+az rest --method PATCH --headers @{
+    Authorization = "Bearer $token"
+    Content-Type = "application/json"
+} --url "https://graph.microsoft.com/v1.0/applications/$appObjectId" --body $body
+
+Write-Host "App roles updated successfully."
