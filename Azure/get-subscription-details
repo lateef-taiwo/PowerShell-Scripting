@@ -1,0 +1,75 @@
+# Log in to Azure
+Connect-AzAccount
+
+# Get a list of all subscriptions you have access to
+$subscriptions = Get-AzSubscription
+
+# Initialize an array to store subscription details
+$subscriptionDetails = @()
+
+# Iterate through each subscription and fetch the required properties
+foreach ($subscription in $subscriptions) {
+    # Switch to the current subscription context
+    Set-AzContext -SubscriptionId $subscription.Id
+   
+    # Getting the subscription properties
+    $properties = @{
+        'Name'                = $subscription.Name
+        'Subscription ID'     = $subscription.Id
+        'Status'              = $subscription.State
+        'Purchase Date'       = $subscription.PurchaseDate
+        'Offer'               = $subscription.OfferType
+        'Offer ID'            = $subscription.OfferId
+        'Account Admin'       = (Get-AzRoleAssignment -Scope "/subscriptions/$($subscription.Id)" -RoleDefinitionName "Account Administrator").PrincipalName
+        'Billing Account ID'  = $subscription.BillingAccountId
+        'Service Admin'       = (Get-AzRoleAssignment -Scope "/subscriptions/$($subscription.Id)" -RoleDefinitionName "Service Administrator").PrincipalName
+    }
+
+    # Add the properties to the array
+    $subscriptionDetails += New-Object PSObject -Property $properties
+}
+
+# Display the results in a table
+$subscriptionDetails | Format-Table -AutoSize
+
+# Optionally, export to a CSV file for further analysis
+$subscriptionDetails | Export-Csv -Path "SubscriptionDetails.csv" -NoTypeInformation
+
+
+
+# # Log in to Azure
+# Connect-AzAccount
+
+# # Get a list of all subscriptions you have access to
+# $subscriptions = Get-AzSubscription
+
+# # Initialize an array to store subscription details
+# $subscriptionDetails = @()
+
+# # Iterate through each subscription and fetch the required properties
+# foreach ($subscription in $subscriptions) {
+#     # Switch to the current subscription context
+#     Set-AzContext -SubscriptionId $subscription.Id
+   
+#     # Getting the subscription properties
+#     $properties = @{
+#         'Name'                = $subscription.Name
+#         'Subscription ID'     = $subscription.Id
+#         'Status'              = $subscription.State
+#         'Purchase Date'       = $subscription.PurchaseDate
+#         'Offer'               = $subscription.OfferType
+#         'Offer ID'            = $subscription.OfferId
+#         'Account Admin'       = (Get-AzRoleAssignment -Scope "/subscriptions/$($subscription.Id)" -RoleDefinitionName "Account Administrator").PrincipalName
+#         'Billing Account ID'  = $subscription.BillingAccountId
+#         'Service Admin'       = (Get-AzRoleAssignment -Scope "/subscriptions/$($subscription.Id)" -RoleDefinitionName "Service Administrator").PrincipalName
+#     }
+
+#     # Add the properties to the array
+#     $subscriptionDetails += New-Object PSObject -Property $properties
+# }
+
+# # Display the results in a table
+# $subscriptionDetails | Format-Table -AutoSize
+
+# # Optionally, export to a CSV file for further analysis
+# $subscriptionDetails | Export-Csv -Path "SubscriptionDetails.csv" -NoTypeInformation

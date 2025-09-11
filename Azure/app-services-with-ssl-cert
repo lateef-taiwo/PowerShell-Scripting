@@ -1,0 +1,41 @@
+Connect-AzAccount
+
+$subscriptionId = "45b82b55-7b23-4089-aa09-1f41e61ec04b"
+
+# Connect to Azure using Az PowerShell
+az account set -subscription $subscriptionId
+
+$appServices = Get-AzWebApp
+$result = @()
+
+foreach ($app in $appServices) {
+    Write-Host "Checking SSL for: $($app.Name) in Resource Group: $($app.ResourceGroup)" -ForegroundColor Cyan
+   
+    $sslBindings = Get-AzWebAppSslBinding -ResourceGroupName $app.ResourceGroup -WebAppName $app.Name -ErrorAction SilentlyContinue
+
+    if ($sslBindings) {
+        foreach ($binding in $sslBindings) {
+            $result += [PSCustomObject]@{
+                SubscriptionId        = $subscriptionId
+                AppName               = $app.Name
+                ResourceGroup         = $app.ResourceGroup
+                HostName              = $binding.Name
+                CertificateThumbprint = $binding.Thumbprint
+                SslState              = $binding.SslState
+            }
+        }
+    }
+    else {
+        $result += [PSCustomObject]@{
+            SubscriptionId        = $subscriptionId
+            AppName               = $app.Name
+            ResourceGroup         = $app.ResourceGroup
+            HostName              = "No SSL Binding"
+            CertificateThumbprint = "N/A"
+            SslState              = "None"
+        }
+    }
+}
+
+$result | Export-Csv -Path "AppServices-SSL-Report.csv" -NoTypeInformation
+Write-Host: "Result of SSL Check: AppServices-SSL-Report.csv" -Foreground-Color Green
