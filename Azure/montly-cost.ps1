@@ -3,34 +3,28 @@
 $subscriptionId = "<SUBSCRIPTION_ID>"   # e.g. "913d17ca-9c11-4e10-908c-a7d8abb50e26"
 $year = 2025
 
-# 1) Login & set context
 Connect-AzAccount -ErrorAction Stop | Out-Null
 Set-AzContext -Subscription $subscriptionId -ErrorAction Stop | Out-Null
 
-# 2) Build REST call to Cost Management Query
 $scope = "/subscriptions/$subscriptionId"
-$api  = "2023-03-01"    # stable API version for Cost Management Query
+$api  = "2023-03-01"
 $uri  = "https://management.azure.com$($scope)/providers/Microsoft.CostManagement/query?api-version=$api"
 
 $from = Get-Date "$year-07-01T00:00:00Z"
-$to   = Get-Date "$year-10-01T00:00:00Z"  # exclusive (returns Jul, Aug, Sep)
+$to   = Get-Date "$year-10-01T00:00:00Z"   # exclusive (Jul, Aug, Sep)
 
+# Monthly totals (ActualCost)
 $body = @{
   type       = "ActualCost"
   timeframe  = "Custom"
   timePeriod = @{ from = $from; to = $to }
   dataset    = @{
     granularity = "Monthly"
-    aggregation = @{
-      totalCost = @{ name = "Cost"; function = "Sum" }
-    }
+    aggregation = @{ totalCost = @{ name = "Cost"; function = "Sum" } }
   }
 } | ConvertTo-Json -Depth 5
 
-# 3) Call the API using Az.Accounts' REST helper
 $resp = Invoke-AzRestMethod -Method POST -Uri $uri -Payload $body -ErrorAction Stop
-
-# 4) Parse rows (columns can be UsageDate/TimePeriod, Currency/BillingCurrency)
 $data = ($resp.Content | ConvertFrom-Json).properties
 
 if (-not $data -or -not $data.rows) {
@@ -38,7 +32,7 @@ if (-not $data -or -not $data.rows) {
   return
 }
 
-# Map column names to indexes
+# Map columns safely (some tenants return UsageDate as yyyyMM; others a date)
 $colIdx = @{}
 for ($i=0; $i -lt $data.columns.Count; $i++) { $colIdx[$data.columns[$i].name] = $i }
 
@@ -47,14 +41,15 @@ function Get-ColVal($row, $names) {
   return $null
 }
 
-# 5) Shape output
 $rows = foreach ($r in $data.rows) {
-  $monthRaw = Get-ColVal $r @('UsageDate','TimePeriod')  # usually yyyyMM
+  $monthRaw = Get-ColVal $r @('UsageDate','TimePeriod','BillingMonth')
+
+  # Normalize to yyyy-MM
   $month = $null
   if ($monthRaw -is [int] -or ($monthRaw -is [string] -and $monthRaw -match '^\d{6}$')) {
     $month = [datetime]::ParseExact($monthRaw.ToString(),'yyyyMM',$null).ToString('yyyy-MM')
   } elseif ($monthRaw) {
-    $tmp=$null; if ([datetime]::TryParse($monthRaw,[ref]$tmp)) { $month = $tmp.ToString('yyyy-MM') }
+    $dt=$null; if ([datetime]::TryParse($monthRaw,[ref]$dt)) { $month = $dt.ToString('yyyy-MM') }
   }
 
   [pscustomobject]@{
@@ -64,16 +59,9 @@ $rows = foreach ($r in $data.rows) {
   }
 }
 
-# Keep only Jul, Aug, Sep of the chosen year and sort
-$want = @("{0}-07" -f $year,"{0}-08" -f $year,"{0}-09" -f $year)
-$rows = $rows | Where-Object { $_.Month -in $want } | Sort-Object Month
+# No filtering needed: the API window is Jul–Sep. Just sort & print.
+$rows = $rows | Sort-Object Month
 
-if (-not $rows) {
-  Write-Warning "Query ran, but no rows matched Jul/Aug/Sep $year."
-  return
-}
-
-# 6) Display, total, export
 $rows | Format-Table Month, Cost, Currency -AutoSize
 
 $total = ($rows | Measure-Object Cost -Sum).Sum
