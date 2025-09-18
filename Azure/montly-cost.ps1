@@ -71,3 +71,6 @@ Write-Host ("`nTOTAL (Jul–Sep): {0} {1:N2}" -f $curr, $total) -ForegroundColor
 $outCsv = "azure-cost-jul-sep-$year.csv"
 $rows | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
 Write-Host "`nSaved CSV -> $outCsv" -ForegroundColor Yellow
+
+
+#($data.columns | Select-Object name,type) | Format-Table
