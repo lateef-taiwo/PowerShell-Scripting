@@ -1,8 +1,8 @@
-# ===== Azure Cost Jul–Sep via REST (no Az.CostManagement needed) =====
-
+# ===== Azure Cost Jul–Sep via REST (module-light, robust columns) =====
 $subscriptionId = "<SUBSCRIPTION_ID>"   # e.g. "913d17ca-9c11-4e10-908c-a7d8abb50e26"
 $year = 2025
 
+# Sign in & set context
 Connect-AzAccount -ErrorAction Stop | Out-Null
 Set-AzContext -Subscription $subscriptionId -ErrorAction Stop | Out-Null
 
@@ -10,8 +10,9 @@ $scope = "/subscriptions/$subscriptionId"
 $api  = "2023-03-01"
 $uri  = "https://management.azure.com$($scope)/providers/Microsoft.CostManagement/query?api-version=$api"
 
+# Jul 1 -> Oct 1 (exclusive) so we only get Jul, Aug, Sep
 $from = Get-Date "$year-07-01T00:00:00Z"
-$to   = Get-Date "$year-10-01T00:00:00Z"   # exclusive (Jul, Aug, Sep)
+$to   = Get-Date "$year-10-01T00:00:00Z"
 
 # Monthly totals (ActualCost)
 $body = @{
@@ -20,10 +21,13 @@ $body = @{
   timePeriod = @{ from = $from; to = $to }
   dataset    = @{
     granularity = "Monthly"
-    aggregation = @{ totalCost = @{ name = "Cost"; function = "Sum" } }
+    aggregation = @{
+      totalCost = @{ name = "Cost"; function = "Sum" }   # alias 'totalCost' will appear as a column
+    }
   }
-} | ConvertTo-Json -Depth 5
+} | ConvertTo-Json -Depth 6
 
+# Call API with Az.Accounts' REST helper
 $resp = Invoke-AzRestMethod -Method POST -Uri $uri -Payload $body -ErrorAction Stop
 $data = ($resp.Content | ConvertFrom-Json).properties
 
@@ -32,45 +36,58 @@ if (-not $data -or -not $data.rows) {
   return
 }
 
-# Map columns safely (some tenants return UsageDate as yyyyMM; others a date)
-$colIdx = @{}
-for ($i=0; $i -lt $data.columns.Count; $i++) { $colIdx[$data.columns[$i].name] = $i }
+# --- Robust column detection ---
+$names = @($data.columns.name)
 
-function Get-ColVal($row, $names) {
-  foreach ($n in $names) { if ($colIdx.ContainsKey($n)) { return $row[$colIdx[$n]] } }
-  return $null
+# find month/cost/currency indexes by fuzzy name match
+$monthName = ($names | Where-Object { $_ -match 'UsageDate|TimePeriod|BillingMonth|Month' } | Select-Object -First 1)
+$costName  = ($names | Where-Object { $_ -match '(?i)totalcost|^cost$|pretaxcost|costinbillingcurrency' } | Select-Object -First 1)
+$currName  = ($names | Where-Object { $_ -match '(?i)currency' } | Select-Object -First 1)
+
+$monthIdx = [Array]::IndexOf($names, $monthName)
+$costIdx  = [Array]::IndexOf($names, $costName)
+$currIdx  = [Array]::IndexOf($names, $currName)
+
+if ($monthIdx -lt 0 -or $costIdx -lt 0) {
+  Write-Warning "Could not locate expected columns. Columns returned: $($names -join ', ')"
+  return
 }
 
+# --- Shape rows (no TryParse) ---
 $rows = foreach ($r in $data.rows) {
-  $monthRaw = Get-ColVal $r @('UsageDate','TimePeriod','BillingMonth')
+  $monthRaw = $r[$monthIdx]
 
-  # Normalize to yyyy-MM
+  # Normalize month to yyyy-MM
   $month = $null
-  if ($monthRaw -is [int] -or ($monthRaw -is [string] -and $monthRaw -match '^\d{6}$')) {
-    $month = [datetime]::ParseExact($monthRaw.ToString(),'yyyyMM',$null).ToString('yyyy-MM')
-  } elseif ($monthRaw) {
-    $dt=$null; if ([datetime]::TryParse($monthRaw,[ref]$dt)) { $month = $dt.ToString('yyyy-MM') }
+  $s = $monthRaw.ToString()
+  if ($s -match '^\d{6}$') {
+    $month = [datetime]::ParseExact($s,'yyyyMM',$null).ToString('yyyy-MM')
+  } else {
+    try { $month = (Get-Date $s).ToString('yyyy-MM') } catch { $month = $s }
   }
+
+  $cost = 0
+  try { $cost = [decimal]$r[$costIdx] } catch { $cost = 0 }
+
+  $currency = $null
+  if ($currIdx -ge 0) { $currency = $r[$currIdx] }
 
   [pscustomobject]@{
     Month    = $month
-    Cost     = [math]::Round([decimal](Get-ColVal $r @('totalCost')), 2)
-    Currency = (Get-ColVal $r @('Currency','BillingCurrency','CurrencyCode'))
+    Cost     = [math]::Round($cost, 2)
+    Currency = $currency
   }
 }
 
-# No filtering needed: the API window is Jul–Sep. Just sort & print.
+# Sort & display (the API window already limits to Jul–Sep)
 $rows = $rows | Sort-Object Month
-
 $rows | Format-Table Month, Cost, Currency -AutoSize
 
+# Total & CSV
 $total = ($rows | Measure-Object Cost -Sum).Sum
-$curr  = ($rows | Select-Object -First 1).Currency
-Write-Host ("`nTOTAL (Jul–Sep): {0} {1:N2}" -f $curr, $total) -ForegroundColor Cyan
+$curr  = ($rows | Where-Object { $_.Currency } | Select-Object -First 1 -ExpandProperty Currency)
+Write-Host ("`nTOTAL (Jul–Sep): {0} {1:N2}" -f ($curr ?? ''), $total) -ForegroundColor Cyan
 
 $outCsv = "azure-cost-jul-sep-$year.csv"
 $rows | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
 Write-Host "`nSaved CSV -> $outCsv" -ForegroundColor Yellow
-
-
-#($data.columns | Select-Object name,type) | Format-Table
