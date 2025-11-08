@@ -23,6 +23,10 @@ Set-ADUser 11052459 -Replace @{proxyAddresses=$newAddresses}
 Get-ADUser 11052459 -Properties proxyAddresses | Select-Object -ExpandProperty proxyAddresses
 
 
+
+------ NEW CODE ------
+
+
 # Get current addresses
 $currentAddresses = (Get-ADUser 11052459 -Properties proxyAddresses).proxyAddresses
 
