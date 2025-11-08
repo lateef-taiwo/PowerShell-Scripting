@@ -7,19 +7,17 @@ https://we.tl/t-czEVliVweY
 
 
 
-# Get current addresses
-$addresses = (Get-ADUser 11052459 -Properties proxyAddresses).proxyAddresses
+# Clear any variables first
+Remove-Variable user1, proxyList -ErrorAction SilentlyContinue
 
-# Remove the specific address
-$updatedAddresses = @()
-foreach ($addr in $addresses) {
-    if ($addr -ne "smtp:Weston.Davidson@seaworld.com") {
-        $updatedAddresses += $addr
-    }
-}
+# Use the filtering approach - this is more reliable
+$currentAddresses = (Get-ADUser 11052459 -Properties proxyAddresses).proxyAddresses
 
-# Set the updated addresses
-Set-ADUser 11052459 -Replace @{proxyAddresses=$updatedAddresses}
+# Filter out the address we want to remove
+$newAddresses = $currentAddresses | Where-Object {$_ -ne "smtp:Weston.Davidson@seaworld.com"}
 
-# Verify the change
+# Apply the changes
+Set-ADUser 11052459 -Replace @{proxyAddresses=$newAddresses}
+
+# Verify it worked
 Get-ADUser 11052459 -Properties proxyAddresses | Select-Object -ExpandProperty proxyAddresses
