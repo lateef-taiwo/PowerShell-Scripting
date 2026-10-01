@@ -1,0 +1,541 @@
+.
+
+I am not a Datadog expert, so guide me carefully and do not assume that I know which Datadog settings to configure.
+
+CONTEXT
+
+The applications I need to monitor are hosted in Adobe Experience Manager as a Cloud Service and managed through Adobe Cloud Manager.
+
+I have been given a Postman collection by the application development team.
+
+My objective is to use this Postman collection to determine which APIs should be monitored with Datadog Synthetic API Monitoring and then build the appropriate Datadog API tests.
+
+IMPORTANT:
+
+Do not assume these are Adobe Cloud Manager management APIs.
+
+They are application APIs associated with applications hosted on AEM as a Cloud Service.
+
+Do not create any Synthetic tests yet.
+
+First analyse the Postman collection and produce a monitoring design for my approval.
+
+PHASE 1: UNDERSTAND THE AEM ARCHITECTURE
+
+Before proposing any Datadog tests, determine from the Postman collection which requests appear to target:
+
+1. AEM Author
+2. AEM Publish
+3. AEM Preview
+4. Dispatcher
+5. CDN or custom domain
+6. A custom application API running as part of the AEM implementation
+7. Adobe IMS or another authentication service
+8. A third party service called by the application
+
+For every endpoint, identify which AEM layer it appears to belong to.
+
+Do not assume the Postman base URL represents production.
+
+Identify all environments referenced, including:
+
+DEV
+STAGE
+PROD
+
+Also identify any custom domains and adobeaemcloud.com domains.
+
+PHASE 2: PARSE THE POSTMAN COLLECTION
+
+Analyse the complete Postman collection and identify:
+
+1. Request name
+2. HTTP method
+3. Full URL
+4. Base URL
+5. Path
+6. Path parameters
+7. Query parameters
+8. Headers
+9. Cookies
+10. Request body
+11. Content type
+12. Authentication configuration
+13. Collection variables
+14. Environment variables
+15. Pre request scripts
+16. Post request or test scripts
+17. Expected response codes
+18. Expected response body
+19. Dependencies between requests
+20. Tokens extracted from previous requests
+21. Any endpoint that creates, updates or deletes data
+
+Present this as a table.
+
+For each request include:
+
+Request Name
+Method
+URL
+Environment
+AEM Layer
+Authentication
+Parameters
+Headers
+Body
+Dependencies
+Expected Response
+Synthetic Monitoring Recommendation
+
+PHASE 3: DETERMINE ACCESSIBILITY
+
+For every endpoint determine whether Datadog managed Synthetic locations should be able to reach it.
+
+Check whether the endpoint appears to be:
+
+Public internet accessible
+IP restricted
+Protected by Adobe authentication
+Protected by a firewall
+Protected by a CDN or WAF
+Restricted by AEM configuration
+Restricted to internal users
+Accessible only through a private corporate network
+
+Do not automatically recommend a Datadog Private Location simply because the application is hosted in AEM Cloud.
+
+If the endpoint is publicly reachable from the internet, recommend a Datadog managed Synthetic location unless there is another reason not to.
+
+If the endpoint is restricted to specific networks or IP addresses, explain whether:
+
+1. Datadog Synthetic managed IP addresses can be allowlisted
+
+or
+
+2. A Datadog Private Location would be required.
+
+Clearly state which option you recommend and why.
+
+PHASE 4: ANALYSE AEM AUTHENTICATION
+
+Pay special attention to authentication.
+
+Determine whether each endpoint uses:
+
+Adobe IMS
+OAuth 2.0
+Bearer token
+AEM service credentials
+Technical account credentials
+API key
+Session cookie
+Custom application token
+Anonymous/public access
+Another authentication mechanism
+
+Do not assume HTTP Basic Authentication should be used simply because an endpoint belongs to AEM.
+
+If the Postman collection performs authentication before accessing another endpoint, map out that authentication flow.
+
+For example:
+
+Authentication Request
+↓
+Receive Access Token
+↓
+Extract Token
+↓
+Use Token in Authorization header
+↓
+Call AEM API
+
+Determine whether Datadog can reproduce this using a Multistep API Synthetic test.
+
+If the collection uses Adobe service credentials, Adobe IMS, OAuth, JWT, client credentials, or another token generation process, identify exactly how the authentication process works.
+
+Do not expose private keys, client secrets, access tokens, or passwords in your output.
+
+PHASE 5: MAP POSTMAN VARIABLES TO DATADOG
+
+Create a complete mapping of Postman variables to Datadog Synthetic variables.
+
+For example:
+
+{{baseUrl}}
+{{accessToken}}
+{{clientId}}
+{{clientSecret}}
+{{environment}}
+{{tenantId}}
+
+For every variable identify:
+
+Postman variable name
+Purpose
+Example usage
+Source
+Datadog equivalent
+Whether it should be secret
+Whether it should be global or local
+
+Sensitive information should be stored using obfuscated Datadog variables wherever possible.
+
+Do not hardcode secrets into Synthetic tests.
+
+PHASE 6: CLASSIFY THE API TESTS
+
+For every relevant endpoint classify it into one of the following:
+
+SINGLE API TEST
+
+Use this when one independent HTTP request is sufficient.
+
+MULTISTEP API TEST
+
+Use this when requests depend on previous requests.
+
+Examples:
+
+Authenticate
+↓
+Extract token
+↓
+Call protected API
+↓
+Validate response
+
+or:
+
+Create test resource
+↓
+Retrieve test resource
+↓
+Validate resource
+↓
+Delete test resource
+
+DO NOT MONITOR CONTINUOUSLY
+
+Use this classification where an endpoint could cause unsafe production side effects.
+
+Pay special attention to:
+
+POST
+PUT
+PATCH
+DELETE
+
+Identify endpoints that:
+
+Publish AEM content
+Unpublish content
+Delete assets
+Modify content
+Upload assets
+Create users
+Modify permissions
+Trigger workflows
+Send emails
+Submit forms
+Create transactions
+Change production configuration
+
+Do not configure these as continuously running production tests unless a dedicated safe test resource and cleanup process exists.
+
+PHASE 7: AEM SPECIFIC SAFETY REVIEW
+
+Because this is AEM as a Cloud Service, explicitly identify requests that interact with:
+
+Author
+Publish
+Dispatcher
+Assets
+Content fragments
+GraphQL
+Sling endpoints
+Servlets
+Replication or publishing operations
+Forms
+Custom application APIs
+
+Determine whether each endpoint is appropriate for production availability monitoring.
+
+Where practical, favour read only operations for continuous production tests.
+
+Examples may include:
+
+GET endpoint
+Health endpoint
+Read only content API
+Read only GraphQL query
+Public application API
+Authentication verification
+
+Flag any endpoint that could alter AEM repository content.
+
+PHASE 8: DESIGN THE DATADOG TESTS
+
+For each recommended Synthetic test provide:
+
+Test Name
+AEM Environment
+AEM Layer
+Test Type
+HTTP Method
+URL
+Authentication
+Headers
+Query Parameters
+Request Body
+Local Variables
+Global Variables
+Extracted Variables
+Assertions
+Frequency
+Locations
+Retries
+Timeout
+Tags
+Alert Condition
+
+Use meaningful assertions.
+
+Do not simply check that the request returns HTTP 200.
+
+Where applicable validate:
+
+HTTP status
+Response time
+JSON field
+JSON value
+Required property
+Required header
+Body content
+Authentication result
+Content availability
+
+PHASE 9: ENVIRONMENT STRATEGY
+
+Separate monitoring recommendations for:
+
+DEV
+STAGE
+PROD
+
+Do not automatically run the same tests against every environment.
+
+For production, prioritise safe read only availability tests.
+
+For staging, identify additional functional tests that may be appropriate.
+
+Where an endpoint changes application state, prefer staging unless a dedicated production Synthetic test account and test data strategy exists.
+
+PHASE 10: IDENTIFY MISSING INFORMATION
+
+Do not guess missing information.
+
+Generate a section called:
+
+INFORMATION TO REQUEST FROM THE AEM APPLICATION TEAM
+
+Include anything I need to ask them, such as:
+
+Production base URL
+Stage base URL
+Author URL
+Publish URL
+Custom application domain
+Which endpoints are business critical
+Required headers
+Authentication mechanism
+Adobe IMS configuration
+OAuth configuration
+Technical account requirements
+Service credential requirements
+IP allowlisting requirements
+Dispatcher restrictions
+CDN restrictions
+WAF restrictions
+Safe production test account
+Safe production test data
+Expected status codes
+Expected response fields
+Performance expectations
+
+For every missing item write:
+
+MISSING: Ask application team.
+
+PHASE 11: DETERMINE WHAT THE POSTMAN COLLECTION ACTUALLY REPRESENTS
+
+Tell me whether the collection appears to contain:
+
+Application APIs
+
+AEM APIs
+
+Adobe Cloud Manager APIs
+
+Adobe IMS authentication APIs
+
+Third party APIs
+
+or a combination.
+
+Do not confuse Adobe Cloud Manager APIs with APIs belonging to the AEM application.
+
+PHASE 12: BUILD A PROPOSED SYNTHETIC MONITORING PLAN
+
+Give me a final table containing:
+
+Priority
+Endpoint
+Environment
+AEM Layer
+Synthetic Type
+Purpose
+Frequency
+Location
+Authentication
+Assertions
+Risk
+Recommendation
+
+Categorise the endpoints as:
+
+Critical
+Important
+Optional
+Do not continuously monitor
+
+Do not create the monitors yet.
+
+PHASE 13: DATADOG IMPLEMENTATION
+
+After the analysis, explain exactly how I would configure the recommended tests in the Datadog UI.
+
+Assume I am a beginner.
+
+For each field in Datadog tell me:
+
+What to enter
+Where the value came from
+Why it is needed
+
+For example:
+
+Test Name:
+Method:
+URL:
+Advanced Options:
+Headers:
+Authentication:
+Request Body:
+Assertions:
+Locations:
+Frequency:
+Retries:
+Tags:
+Monitor Notification:
+
+PHASE 14: AUTOMATION
+
+After I approve the monitoring plan, determine whether you have the capability and permissions to create these Synthetic tests directly.
+
+If you cannot create them directly, generate valid Datadog Synthetic API configuration for the approved tests so they can be created through the Datadog Synthetics API or Terraform.
+
+Do not create anything until I explicitly approve it.
+
+FINAL OUTPUT
+
+Give me:
+
+1. Complete API inventory
+2. AEM environment mapping
+3. Author versus Publish versus Dispatcher mapping
+4. Authentication flow
+5. Postman to Datadog variable mapping
+6. Recommended Single API tests
+7. Recommended Multistep API tests
+8. APIs that should not run continuously
+9. Missing information
+10. Questions for the AEM developers
+11. Network accessibility requirements
+12. Recommended Datadog locations
+13. Recommended assertions
+14. Proposed monitoring frequency
+15. Step by step Datadog configuration instructions
+16. Risks and assumptions
+
+Start only with analysis of the Postman collection.
+
+Do not make changes to Datadog yet.
+
+
+
+
+
+
+
+AUTHENTICATION TRACE
+
+Do not only identify the Authorization header.
+
+Trace the complete authentication lifecycle across the Postman collection.
+
+For every authenticated API:
+
+1. Identify the authentication type.
+
+2. Determine where the credentials originate.
+
+3. Determine whether authentication is configured at:
+   Collection level
+   Folder level
+   Request level
+
+4. Search all pre request scripts for authentication logic.
+
+5. Search all test scripts for token extraction.
+
+6. Search for authentication or token generation requests.
+
+7. Identify all variables related to authentication, including:
+   access_token
+   token
+   bearer_token
+   client_id
+   client_secret
+   api_key
+   username
+   password
+   token_url
+   auth_url
+   ims_token
+
+8. Determine how access tokens are generated.
+
+9. Determine whether the authentication appears to use:
+   Adobe IMS
+   OAuth 2.0
+   OAuth Client Credentials
+   Bearer Token
+   API Key
+   Session Cookie
+   AEM Service Credentials
+   Custom Authentication
+
+10. Trace dependencies, for example:
+
+Authentication Request
+→ Extract access_token
+→ Store access_token variable
+→ Add Authorization: Bearer access_token
+→ Call AEM API
+
+11. Tell me whether this authentication flow can be reproduced using a Datadog Multistep API Synthetic test.
+
+12. Do not expose any actual secrets found in the collection.
+
+13. If the authentication mechanism cannot be completely determined, tell me exactly what is missing rather than guessing.
